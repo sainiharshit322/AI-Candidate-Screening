@@ -15,26 +15,37 @@ async def send_test_links(threshold: Optional[float] = None):
 
     if supabase:
         try:
-            res = supabase.table("candidates").select("*, evaluations(*)").eq("stage", "evaluated").execute()
-            all_eval = res.data or []
-            for c in all_eval:
-                evals = c.get("evaluations", [])
-                latest_eval = evals[-1] if evals else {}
-                total_score = latest_eval.get("total_score") or 0.0
-                if total_score >= min_threshold:
-                    candidates_to_send.append(c)
+            c_res = supabase.table("candidates").select("*").execute()
+            all_candidates = c_res.data or []
+            
+            try:
+                e_res = supabase.table("evaluations").select("*").execute()
+                evaluations = e_res.data or []
+            except Exception:
+                evaluations = []
+
+            eval_map = {ev.get("candidate_id"): ev for ev in evaluations if ev.get("candidate_id")}
+
+            for c in all_candidates:
+                # Include candidates in 'evaluated' or 'uploaded' stage with score >= threshold
+                stage = c.get("stage")
+                if stage in ["evaluated", "uploaded"]:
+                    latest_eval = eval_map.get(c["id"], {})
+                    total_score = latest_eval.get("total_score") or 0.0
+                    if total_score >= min_threshold:
+                        candidates_to_send.append(c)
         except Exception as e:
             print(f"Supabase candidate fetch error: {e}")
             all_c = mock_db.get_candidates()
             candidates_to_send = [
                 c for c in all_c 
-                if c.get("stage") == "evaluated" and (c.get("total_score") or 0.0) >= min_threshold
+                if c.get("stage") in ["evaluated", "uploaded"] and (c.get("total_score") or 0.0) >= min_threshold
             ]
     else:
         all_c = mock_db.get_candidates()
         candidates_to_send = [
             c for c in all_c 
-            if c.get("stage") == "evaluated" and (c.get("total_score") or 0.0) >= min_threshold
+            if c.get("stage") in ["evaluated", "uploaded"] and (c.get("total_score") or 0.0) >= min_threshold
         ]
 
     sent_count = 0
