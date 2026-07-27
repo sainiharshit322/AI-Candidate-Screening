@@ -34,7 +34,6 @@ async def create_job_description(jd: JobDescriptionCreate):
         except Exception as e:
             print(f"Supabase JD insert error: {e}")
     
-    # Fallback / mock DB
     mock_jd = {"id": jd_id, "title": title, "content": content}
     mock_db.job_descriptions.append(mock_jd)
     return mock_jd
@@ -44,36 +43,53 @@ async def trigger_evaluation(req: EvaluateRequest):
     jd_id = req.job_description_id
     jd_content = ""
     
-    # 1. Fetch Job Description
+    # 1. Fetch Job Description (by ID or fallback to latest)
     if supabase:
         try:
-            jd_res = supabase.table("job_descriptions").select("*").eq("id", jd_id).execute()
-            if jd_res.data:
-                jd_content = jd_res.data[0].get("content", "")
+            if jd_id and jd_id not in ["default-job-description-id", "latest", "default"]:
+                jd_res = supabase.table("job_descriptions").select("*").eq("id", jd_id).execute()
+                if jd_res.data:
+                    jd_content = jd_res.data[0].get("content", "")
+            
+            if not jd_content:
+                latest_res = supabase.table("job_descriptions").select("*").order("created_at", desc=True).limit(1).execute()
+                if latest_res.data:
+                    jd_content = latest_res.data[0].get("content", "")
+                    jd_id = latest_res.data[0].get("id")
         except Exception as e:
             print(f"Supabase JD fetch error: {e}")
 
     if not jd_content:
-        mock_jd = next((j for j in mock_db.job_descriptions if j.get("id") == jd_id), None)
-        if mock_jd:
+        if jd_id:
+            mock_jd = next((j for j in mock_db.job_descriptions if j.get("id") == jd_id), None)
+            if mock_jd:
+                jd_content = mock_jd.get("content", "")
+        if not jd_content and mock_db.job_descriptions:
+            mock_jd = mock_db.job_descriptions[-1]
             jd_content = mock_jd.get("content", "")
-        else:
-            raise HTTPException(status_code=404, detail="Job Description not found")
+            jd_id = mock_jd.get("id")
 
-    # 2. Fetch candidates to evaluate (uploaded stage)
+    if not jd_content:
+        jd_content = "Software Engineer proficient in Python, AI/ML models, system design, and database architecture."
+        jd_id = str(uuid.uuid4())
+
+    # 2. Fetch candidates to evaluate (uploaded stage or all candidates)
     candidates_to_eval = []
     if supabase:
         try:
             c_res = supabase.table("candidates").select("*").eq("stage", "uploaded").execute()
             candidates_to_eval = c_res.data or []
+            if not candidates_to_eval:
+                c_all = supabase.table("candidates").select("*").execute()
+                candidates_to_eval = c_all.data or []
         except Exception as e:
-            candidates_to_eval = [c for c in mock_db.candidates if c.get("stage") == "uploaded"]
+            candidates_to_eval = [c for c in mock_db.candidates if c.get("stage") == "uploaded"] or mock_db.candidates
     else:
-        candidates_to_eval = [c for c in mock_db.candidates if c.get("stage") == "uploaded"]
+        candidates_to_eval = [c for c in mock_db.candidates if c.get("stage") == "uploaded"] or mock_db.candidates
 
     evaluated_count = 0
 
-    # 3. Process each candidate
+    # 3. Process each candidate (Stage 1: Resume + GitHub fit score only)
     for cand in candidates_to_eval:
         cand_id = cand["id"]
         resume_url = cand.get("resume_url") or ""
@@ -95,17 +111,12 @@ async def trigger_evaluation(req: EvaluateRequest):
         ai_strengths = ai_result.get("strengths", [])
         ai_gaps = ai_result.get("gaps", [])
 
-        # Step D: Composite Scoring
-        test_la = 0.0
-        test_code = 0.0
+        # Step D: Initial Score Calculation (Normalized based ONLY on Resume + GitHub + CGPA)
         cgpa_score = min((cgpa / 10.0) * 100.0, 100.0)
         
-        total_score = round(
-            ai_score * 0.35 +
-            github_score * 0.25 +
-            test_code * 0.25 +
-            test_la * 0.10 +
-            cgpa_score * 0.05,
+        # Initial score formula prior to test results: (35% AI + 25% GitHub + 5% CGPA) / 0.65
+        initial_score = round(
+            (ai_score * 0.35 + github_score * 0.25 + cgpa_score * 0.05) / 0.65,
             2
         )
 
@@ -120,9 +131,9 @@ async def trigger_evaluation(req: EvaluateRequest):
             "ai_gaps": ai_gaps,
             "github_score": github_score,
             "github_summary": github_summary,
-            "test_la": test_la,
-            "test_code": test_code,
-            "total_score": total_score
+            "test_la": None,
+            "test_code": None,
+            "total_score": initial_score
         }
 
         # Step E: Save evaluation & update stage
@@ -148,12 +159,24 @@ async def get_evaluation_results(threshold: Optional[float] = None):
     
     if supabase:
         try:
-            res = supabase.table("candidates").select("*, evaluations(*)").execute()
-            candidates = res.data or []
+            c_res = supabase.table("candidates").select("*").execute()
+            candidates = c_res.data or []
+            
+            try:
+                e_res = supabase.table("evaluations").select("*").execute()
+                evaluations = e_res.data or []
+            except Exception:
+                evaluations = []
+
+            eval_map = {}
+            for ev in evaluations:
+                cid = ev.get("candidate_id")
+                if cid:
+                    eval_map[cid] = ev
+
             results = []
             for c in candidates:
-                evals = c.get("evaluations", [])
-                latest_eval = evals[-1] if evals else {}
+                latest_eval = eval_map.get(c["id"], {})
                 total_score = latest_eval.get("total_score") or 0.0
                 if total_score >= min_threshold:
                     c_data = {
@@ -175,7 +198,6 @@ async def get_evaluation_results(threshold: Optional[float] = None):
         except Exception as e:
             print(f"Supabase fetch results error: {e}")
     
-    # Mock DB fallback
     all_candidates = mock_db.get_candidates()
     shortlisted = [c for c in all_candidates if (c.get("total_score") or 0.0) >= min_threshold]
     shortlisted.sort(key=lambda x: (x.get("total_score") or 0.0), reverse=True)

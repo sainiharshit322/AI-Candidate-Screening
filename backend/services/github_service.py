@@ -1,29 +1,58 @@
 from github import Github
 import os
+import re
 from datetime import datetime, timezone, timedelta
+
+def extract_github_username(url: str) -> str:
+    if not url or not isinstance(url, str):
+        return ""
+    clean = url.strip().rstrip("/")
+    if "github.com/" in clean:
+        after_domain = clean.split("github.com/")[1]
+        parts = [p for p in after_domain.split("/") if p]
+        if parts:
+            return parts[0]
+    # Fallback regex
+    match = re.search(r'github\.com/([a-zA-Z0-9_-]+)', clean)
+    if match:
+        return match.group(1)
+    return clean.split("/")[-1]
 
 def analyze_github(github_url: str) -> dict:
     if not github_url or not isinstance(github_url, str):
         return {"score": 0.0, "summary": "No GitHub URL provided"}
-    try:
-        clean_url = github_url.rstrip("/")
-        username = clean_url.split("/")[-1]
-        if not username:
-            return {"score": 0.0, "summary": "Invalid GitHub URL"}
-            
-        token = os.getenv("GITHUB_TOKEN")
-        g = Github(token) if token else Github()
         
+    username = extract_github_username(github_url)
+    if not username or username.lower() in ["none", "null", "undefined"]:
+        return {"score": 0.0, "summary": "No valid GitHub profile provided"}
+        
+    token = os.getenv("GITHUB_TOKEN")
+    
+    # Try authenticated Github first, fallback to unauthenticated if token fails
+    g = None
+    if token:
+        try:
+            g = Github(token)
+            user = g.get_user(username)
+            # test call
+            _ = user.id
+        except Exception as e:
+            print(f"GitHub token auth failed, falling back to public API: {e}")
+            g = Github()
+    else:
+        g = Github()
+
+    try:
         user = g.get_user(username)
         repos = list(user.get_repos())[:15]
 
         total_stars = sum(r.stargazers_count for r in repos)
         repo_count = len(repos)
         languages = set(r.language for r in repos if r.language)
-        ai_keywords = ["ml", "ai", "deep", "neural", "llm", "nlp", "vision", "model", "gpt", "bert"]
+        ai_keywords = ["ml", "ai", "deep", "neural", "llm", "nlp", "vision", "model", "gpt", "bert", "transformer", "learning"]
         ai_repos = [r for r in repos if any(k in (r.name + " " + (r.description or "")).lower() for k in ai_keywords)]
 
-        recent_threshold = datetime.now(timezone.utc) - timedelta(days=30)
+        recent_threshold = datetime.now(timezone.utc) - timedelta(days=90)
         recent_activity = False
         for r in repos:
             if r.pushed_at:
@@ -42,11 +71,12 @@ def analyze_github(github_url: str) -> dict:
 
         lang_str = ", ".join(list(languages)[:5]) if languages else "None"
         summary = (
-            f"{repo_count} public repos | {total_stars} stars | "
+            f"@{username} | {repo_count} repos | {total_stars} stars | "
             f"Languages: {lang_str} | "
             f"AI/ML repos: {len(ai_repos)} | "
             f"Recent activity: {'Yes' if recent_activity else 'No'}"
         )
         return {"score": round(total, 1), "summary": summary}
     except Exception as e:
-        return {"score": 0.0, "summary": f"GitHub analysis failed: {str(e)}"}
+        print(f"Error inspecting GitHub user {username}: {e}")
+        return {"score": 0.0, "summary": f"GitHub (@{username}) analysis failed: {str(e)}"}
