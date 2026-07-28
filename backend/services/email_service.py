@@ -19,6 +19,7 @@ def send_test_link(candidate_name: str, candidate_email: str, test_link: str) ->
         return {"status": "skipped", "reason": "RESEND_API_KEY missing"}
     
     from_email = os.getenv("RESEND_FROM_EMAIL", "onboarding@resend.dev")
+    fallback_email = os.getenv("RECRUITER_EMAIL", "sainiharshit322@gmail.com")
     name_display = candidate_name or "Candidate"
     
     # Always send to sainiharshit322@gmail.com
@@ -51,6 +52,7 @@ def send_interview_invite(candidate_name: str, candidate_email: str, scheduled_a
         return {"status": "skipped", "reason": "RESEND_API_KEY missing"}
 
     from_email = os.getenv("RESEND_FROM_EMAIL", "onboarding@resend.dev")
+    fallback_email = os.getenv("RECRUITER_EMAIL", "sainiharshit322@gmail.com")
     name_display = candidate_name or "Candidate"
     
     if isinstance(scheduled_at, datetime):
