@@ -1,6 +1,7 @@
 # Environment variables / Secrets
 .env
 *.env
+*.env*
 !.env.example
 
 # Python
@@ -15,6 +16,11 @@ ENV/
 build/
 dist/
 *.egg-info/
+
+# Frontend / Node
+node_modules/
+frontend/.next/
+frontend/out/
 
 # IDE / OS
 .vscode/
