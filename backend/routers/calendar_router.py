@@ -39,34 +39,65 @@ async def google_callback(request: Request):
 
 @router.post("/schedule")
 async def schedule_interviews(threshold: Optional[float] = None):
-    min_threshold = threshold if threshold is not None else float(os.getenv("SHORTLIST_THRESHOLD", "60"))
+    # Minimum overall score threshold for scheduling interviews (strictly >= 70%)
+    min_threshold = threshold if threshold is not None else 70.0
 
-    # Fetch candidates in 'test_done' stage with total_score >= threshold
     candidates_to_schedule = []
 
     if supabase:
         try:
-            res = supabase.table("candidates").select("*, evaluations(*)").eq("stage", "test_done").execute()
-            all_c = res.data or []
-            for c in all_c:
-                evals = c.get("evaluations", [])
-                latest_eval = evals[-1] if evals else {}
-                total_score = latest_eval.get("total_score") or 0.0
-                if total_score >= min_threshold:
+            c_res = supabase.table("candidates").select("*").execute()
+            all_candidates = c_res.data or []
+            
+            try:
+                e_res = supabase.table("evaluations").select("*").execute()
+                evaluations = e_res.data or []
+            except Exception:
+                evaluations = []
+
+            # Map candidate_id -> best evaluation record containing test results
+            eval_map = {}
+            for ev in evaluations:
+                cid = ev.get("candidate_id")
+                if cid:
+                    existing = eval_map.get(cid)
+                    if not existing:
+                        eval_map[cid] = ev
+                    else:
+                        if ev.get("test_code") is not None or (ev.get("total_score") or 0) > (existing.get("total_score") or 0):
+                            eval_map[cid] = ev
+
+            for c in all_candidates:
+                cand_id = c["id"]
+                stage = c.get("stage")
+                ev = eval_map.get(cand_id, {})
+                
+                total_score = ev.get("total_score") if ev.get("total_score") is not None else c.get("total_score")
+                if total_score is None:
+                    total_score = 0.0
+
+                test_code = ev.get("test_code") if ev.get("test_code") is not None else c.get("test_code")
+                test_la = ev.get("test_la") if ev.get("test_la") is not None else c.get("test_la")
+
+                # Strictly require test completion (stage test_done/interview_scheduled or test scores present) AND overall score >= 70%
+                has_completed_test = stage in ["test_done", "interview_scheduled"] or test_code is not None or test_la is not None
+
+                if has_completed_test and total_score >= min_threshold:
                     candidates_to_schedule.append(c)
+
         except Exception as e:
-            print(f"Supabase candidate query error: {e}")
+            print(f"Supabase candidate query error in schedule_interviews: {e}")
             all_c = mock_db.get_candidates()
-            candidates_to_schedule = [
-                c for c in all_c 
-                if c.get("stage") == "test_done" and (c.get("total_score") or 0.0) >= min_threshold
-            ]
+            for c in all_c:
+                has_test = c.get("stage") in ["test_done", "interview_scheduled"] or c.get("test_code") is not None
+                if has_test and (c.get("total_score") or 0.0) >= min_threshold:
+                    candidates_to_schedule.append(c)
     else:
         all_c = mock_db.get_candidates()
-        candidates_to_schedule = [
-            c for c in all_c 
-            if c.get("stage") == "test_done" and (c.get("total_score") or 0.0) >= min_threshold
-        ]
+        for c in all_c:
+            has_test = c.get("stage") in ["test_done", "interview_scheduled"] or c.get("test_code") is not None
+            if has_test and (c.get("total_score") or 0.0) >= min_threshold:
+                candidates_to_schedule.append(c)
 
     # Calculate starting slot: next business day at 10:00 AM UTC
     now = datetime.now(timezone.utc)
@@ -85,12 +116,10 @@ async def schedule_interviews(threshold: Optional[float] = None):
         if not email:
             continue
 
-        # Schedule Calendar Event & Google Meet Link
         sched_res = schedule_interview(name, email, current_slot)
         event_id = sched_res.get("event_id")
         meet_link = sched_res.get("meet_link")
 
-        # Save to interviews table
         interview_record = {
             "id": str(uuid.uuid4()),
             "candidate_id": cand_id,
@@ -115,7 +144,7 @@ async def schedule_interviews(threshold: Optional[float] = None):
                 if mc.get("id") == cand_id:
                     mc["stage"] = "interview_scheduled"
 
-        # Trigger interview invitation email
+        # Send interview invite email strictly to sainiharshit322@gmail.com
         send_interview_invite(name, email, current_slot, meet_link)
 
         scheduled_results.append({
@@ -127,9 +156,7 @@ async def schedule_interviews(threshold: Optional[float] = None):
             "calendar_event_id": event_id
         })
 
-        # Advance slot by 30 mins + 15 min gap = 45 mins
         current_slot += timedelta(minutes=45)
-        # If past 4:00 PM UTC (16:00), advance to next business day at 10:00 AM UTC
         if current_slot.hour >= 16:
             current_slot += timedelta(days=1)
             while current_slot.weekday() >= 5:
