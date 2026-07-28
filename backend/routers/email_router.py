@@ -8,7 +8,7 @@ router = APIRouter()
 
 @router.post("/send-test-links")
 async def send_test_links(threshold: Optional[float] = None):
-    min_threshold = threshold if threshold is not None else float(os.getenv("SHORTLIST_THRESHOLD", "60"))
+    # Test is sent to EVERY candidate (no score threshold required!)
     test_link = os.getenv("TEST_LINK", "https://example.com/assessment")
 
     candidates_to_send = []
@@ -18,34 +18,23 @@ async def send_test_links(threshold: Optional[float] = None):
             c_res = supabase.table("candidates").select("*").execute()
             all_candidates = c_res.data or []
             
-            try:
-                e_res = supabase.table("evaluations").select("*").execute()
-                evaluations = e_res.data or []
-            except Exception:
-                evaluations = []
-
-            eval_map = {ev.get("candidate_id"): ev for ev in evaluations if ev.get("candidate_id")}
-
             for c in all_candidates:
-                # Include candidates in 'evaluated' or 'uploaded' stage with score >= threshold
+                # Include ALL candidates in evaluated, uploaded, or initial stages
                 stage = c.get("stage")
                 if stage in ["evaluated", "uploaded"]:
-                    latest_eval = eval_map.get(c["id"], {})
-                    total_score = latest_eval.get("total_score") or 0.0
-                    if total_score >= min_threshold:
-                        candidates_to_send.append(c)
+                    candidates_to_send.append(c)
         except Exception as e:
             print(f"Supabase candidate fetch error: {e}")
             all_c = mock_db.get_candidates()
             candidates_to_send = [
                 c for c in all_c 
-                if c.get("stage") in ["evaluated", "uploaded"] and (c.get("total_score") or 0.0) >= min_threshold
+                if c.get("stage") in ["evaluated", "uploaded"]
             ]
     else:
         all_c = mock_db.get_candidates()
         candidates_to_send = [
             c for c in all_c 
-            if c.get("stage") in ["evaluated", "uploaded"] and (c.get("total_score") or 0.0) >= min_threshold
+            if c.get("stage") in ["evaluated", "uploaded"]
         ]
 
     sent_count = 0

@@ -165,7 +165,12 @@ async def list_candidates():
             for ev in evaluations:
                 cid = ev.get("candidate_id")
                 if cid:
-                    eval_map[cid] = ev
+                    existing = eval_map.get(cid)
+                    if not existing:
+                        eval_map[cid] = ev
+                    else:
+                        if ev.get("test_code") is not None or (ev.get("total_score") or 0) > (existing.get("total_score") or 0):
+                            eval_map[cid] = ev
 
             output = []
             for c in candidates:
