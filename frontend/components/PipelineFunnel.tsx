@@ -9,28 +9,29 @@ interface PipelineFunnelProps {
 }
 
 export const PipelineFunnel: React.FC<PipelineFunnelProps> = ({ candidates }) => {
-  // Cumulative funnel calculation: a candidate who reaches a later stage is counted in all preceding stages
-  const evaluatedCount = candidates.filter((c) =>
-    ["evaluated", "test_sent", "test_done", "interview_scheduled"].includes(c.stage) || c.total_score !== undefined
-  ).length;
+  const total = candidates.length;
+  const evaluatedCount = total;
 
+  // Test Sent: Only AFTER 'Send Test Links' button is clicked
   const testSentCount = candidates.filter((c) =>
     ["test_sent", "test_done", "interview_scheduled"].includes(c.stage)
   ).length;
 
+  // Test Done: Only AFTER test results CSV is uploaded
   const testDoneCount = candidates.filter((c) =>
-    ["test_done", "interview_scheduled"].includes(c.stage) || c.test_code !== undefined
+    ["test_done", "interview_scheduled"].includes(c.stage)
   ).length;
 
-  const scheduledCount = candidates.filter((c) =>
-    c.stage === "interview_scheduled"
+  // Shortlisted: Only AFTER test results CSV is uploaded AND overall score >= 70%
+  const shortlistedCount = candidates.filter(
+    (c) => ["test_done", "interview_scheduled"].includes(c.stage) && (c.total_score || 0) >= 70
   ).length;
 
   const data = [
     { stageName: "Evaluated", stageKey: "evaluated", count: evaluatedCount, color: "#6366f1" },
     { stageName: "Test Sent", stageKey: "test_sent", count: testSentCount, color: "#f59e0b" },
     { stageName: "Test Done", stageKey: "test_done", count: testDoneCount, color: "#3b82f6" },
-    { stageName: "Scheduled", stageKey: "interview_scheduled", count: scheduledCount, color: "#10b981" },
+    { stageName: "Shortlisted (≥70%)", stageKey: "shortlisted", count: shortlistedCount, color: "#10b981" },
   ];
 
   return (
@@ -41,7 +42,7 @@ export const PipelineFunnel: React.FC<PipelineFunnelProps> = ({ candidates }) =>
           <p className="text-xs text-slate-500">Candidate progression by stage</p>
         </div>
         <div className="text-xs font-semibold text-slate-400">
-          {candidates.length} total candidates
+          {total} total applicants
         </div>
       </div>
 

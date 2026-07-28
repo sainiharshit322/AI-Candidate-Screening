@@ -56,11 +56,11 @@ export default function DashboardPage() {
   const handleSendTestLinks = async () => {
     setActionLoading("email");
     try {
-      const res = await sendTestLinks(60);
-      toast.success(`Test links dispatched to ${res.sent_count} shortlisted candidates!`);
+      const res = await sendTestLinks();
+      toast.success(`Sent assessment test link emails to all ${res.sent_count} candidates!`);
       fetchCandidates();
     } catch (e: any) {
-      toast.error(`Failed to send test links: ${e.message}`);
+      toast.error(`Email dispatch failed: ${e.message}`);
     } finally {
       setActionLoading(null);
     }
@@ -69,8 +69,8 @@ export default function DashboardPage() {
   const handleScheduleInterviews = async () => {
     setActionLoading("calendar");
     try {
-      const res = await scheduleInterviews(70);
-      toast.success(`Scheduled ${res.scheduled_count} interview slots for candidates with score >= 70%!`);
+      const res = await scheduleInterviews();
+      toast.success(`Scheduled interviews & sent invitations for ${res.scheduled_count} shortlisted candidates!`);
       fetchCandidates();
     } catch (e: any) {
       toast.error(`Interview scheduling failed: ${e.message}`);

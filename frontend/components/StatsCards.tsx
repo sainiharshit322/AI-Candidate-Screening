@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { Users, FileCheck, Send, CheckCircle2, Calendar } from "lucide-react";
+import { Users, FileCheck, Send, CheckCircle2, Award } from "lucide-react";
 import { Candidate } from "../lib/api";
 
 interface StatsCardsProps {
@@ -10,21 +10,21 @@ interface StatsCardsProps {
 
 export const StatsCards: React.FC<StatsCardsProps> = ({ candidates }) => {
   const total = candidates.length;
+  const evaluated = total;
 
-  const evaluated = candidates.filter((c) =>
-    ["evaluated", "test_sent", "test_done", "interview_scheduled"].includes(c.stage) || c.total_score !== undefined
-  ).length;
-
+  // Test Sent: Only AFTER 'Send Test Links' is clicked (stage is test_sent, test_done, or interview_scheduled)
   const testSent = candidates.filter((c) =>
     ["test_sent", "test_done", "interview_scheduled"].includes(c.stage)
   ).length;
 
+  // Test Done: Only AFTER test results CSV is uploaded (stage is test_done or interview_scheduled)
   const testDone = candidates.filter((c) =>
-    ["test_done", "interview_scheduled"].includes(c.stage) || c.test_code !== undefined
+    ["test_done", "interview_scheduled"].includes(c.stage)
   ).length;
 
-  const scheduled = candidates.filter((c) =>
-    c.stage === "interview_scheduled"
+  // Shortlisted: Only AFTER test results CSV is uploaded (stage is test_done or interview_scheduled) AND total_score >= 70%
+  const shortlisted = candidates.filter(
+    (c) => ["test_done", "interview_scheduled"].includes(c.stage) && (c.total_score || 0) >= 70
   ).length;
 
   const cards = [
@@ -32,7 +32,7 @@ export const StatsCards: React.FC<StatsCardsProps> = ({ candidates }) => {
     { title: "Evaluated", value: evaluated, icon: FileCheck, color: "text-indigo-600 bg-indigo-50" },
     { title: "Test Sent", value: testSent, icon: Send, color: "text-amber-600 bg-amber-50" },
     { title: "Test Done", value: testDone, icon: CheckCircle2, color: "text-blue-600 bg-blue-50" },
-    { title: "Scheduled", value: scheduled, icon: Calendar, color: "text-emerald-600 bg-emerald-50" },
+    { title: "Shortlisted (≥70%)", value: shortlisted, icon: Award, color: "text-emerald-600 bg-emerald-50 font-bold" },
   ];
 
   return (

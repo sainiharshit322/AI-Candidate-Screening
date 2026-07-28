@@ -22,12 +22,11 @@ export const CandidateTable: React.FC<CandidateTableProps> = ({
   const [sortAsc, setSortAsc] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
-  // Clean tabs: Removed 'uploaded' and 'evaluated', added 'shortlisted' (score >= 60%)
   const stages = [
     { id: "all", label: "All Candidates" },
-    { id: "shortlisted", label: "Shortlisted (Score ≥ 60%)" },
     { id: "test_sent", label: "Test Sent" },
     { id: "test_done", label: "Test Done" },
+    { id: "shortlisted", label: "Shortlisted (Score ≥ 70%)" },
     { id: "interview_scheduled", label: "Scheduled" },
   ];
 
@@ -35,13 +34,12 @@ export const CandidateTable: React.FC<CandidateTableProps> = ({
     let matchesStage = true;
 
     if (selectedStage === "shortlisted") {
-      // Shortlisted criteria: score >= 60 AND evaluated or beyond
-      matchesStage =
-        (c.stage === "evaluated" ||
-          c.stage === "test_sent" ||
-          c.stage === "test_done" ||
-          c.stage === "interview_scheduled") &&
-        (c.total_score || 0) >= 60;
+      // Shortlisted criteria: strictly requires stage to be test_done or interview_scheduled AND total_score >= 70
+      matchesStage = ["test_done", "interview_scheduled"].includes(c.stage) && (c.total_score || 0) >= 70;
+    } else if (selectedStage === "test_sent") {
+      matchesStage = ["test_sent", "test_done", "interview_scheduled"].includes(c.stage);
+    } else if (selectedStage === "test_done") {
+      matchesStage = ["test_done", "interview_scheduled"].includes(c.stage);
     } else if (selectedStage !== "all") {
       matchesStage = c.stage === selectedStage;
     }
@@ -97,7 +95,7 @@ export const CandidateTable: React.FC<CandidateTableProps> = ({
     if (score === undefined || score === null) return <span className="text-slate-400 font-mono text-xs">-</span>;
     let cls = "bg-slate-100 text-slate-700";
     if (score >= 70) cls = "bg-emerald-100 text-emerald-800 font-bold border border-emerald-200";
-    else if (score >= 40) cls = "bg-amber-100 text-amber-800 font-medium border border-amber-200";
+    else if (score >= 50) cls = "bg-amber-100 text-amber-800 font-medium border border-amber-200";
     else cls = "bg-red-100 text-red-800 font-medium border border-red-200";
     return <span className={`px-2 py-0.5 rounded text-xs ${cls}`}>{score.toFixed(1)}</span>;
   };
@@ -192,7 +190,13 @@ export const CandidateTable: React.FC<CandidateTableProps> = ({
             {sorted.length === 0 ? (
               <tr>
                 <td colSpan={9} className="py-12 text-center text-slate-400 text-sm">
-                  No candidates found matching criteria.
+                  {selectedStage === "test_sent"
+                    ? "No test sent candidates yet. Candidates appear here after clicking 'Send Test Links'."
+                    : selectedStage === "test_done"
+                    ? "No test done candidates yet. Candidates appear here after uploading test results."
+                    : selectedStage === "shortlisted"
+                    ? "No shortlisted candidates yet. Shortlisted candidates appear after test results are uploaded for candidates scoring ≥ 70%."
+                    : "No candidates found matching criteria."}
                 </td>
               </tr>
             ) : (
